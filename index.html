@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>五子棋專業版 - 規則強化版</title>
+    <style>
+        :root {
+            --wood-color: #deb887;
+            --wood-grain: #d2b48c;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            background-color: #2c3e50;
+            color: white;
+            font-family: "Microsoft JhengHei", sans-serif;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        #game-container {
+            display: flex;
+            gap: 20px;
+            background: #34495e;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        /* 左側棋盤區 */
+        #board-side {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        canvas {
+            background-color: var(--wood-color);
+            background-image: repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 10px,
+                rgba(210, 180, 140, 0.2) 10px,
+                rgba(210, 180, 140, 0.2) 20px
+            );
+            border: 2px solid #5d4037;
+            cursor: pointer;
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.2);
+            transition: filter 0.5s ease;
+        }
+
+        /* 勝利時棋盤變暗 */
+        canvas.dimmed {
+            filter: brightness(0.7);
+            pointer-events: none;
+        }
+
+        /* 右側控制與紀錄區 */
+        #control-side {
+            width: 300px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .panel {
+            background: #2c3e50;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #7f8c8d;
+        }
+
+        .timer-display {
+            font-size: 32px;
+            text-align: center;
+            color: #e74c3c;
+            font-weight: bold;
+            font-family: monospace;
+        }
+
+        /* 當前棋子圖示 */
+        .current-piece-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            margin: 10px auto 0;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        #history-log {
+            height: 350px;
+            overflow-y: auto;
+            background: #ecf0f1;
+            color: #333;
+            padding: 10px;
+            font-size: 14px;
+            border-radius: 3px;
+            display: flex;
+            flex-direction: column; 
+        }
+
+        .history-item {
+            border-bottom: 1px solid #ddd;
+            padding: 4px 0;
+        }
+
+        .victory-log {
+            color: #e74c3c;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .undo-item {
+            color: #e67e22;
+            font-weight: bold;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        button {
+            cursor: pointer;
+            padding: 8px;
+            background: #3498db;
+            border: none;
+            color: white;
+            border-radius: 3px;
+            transition: 0.2s;
+        }
+
+        button:hover { background: #2980b9; }
+        input[type="number"] { width: 60px; padding: 2px; }
+        label { font-size: 18px; }
+
+    </style>
+</head>
+<body>
+
+    <h1>五子棋專業版</h1>
+
+    <div id="game-container">
+        <!-- 左邊：棋盤 -->
+        <div id="board-side">
+            <canvas id="gomokuCanvas"></canvas>
+        </div>
+
+        <!-- 右邊：紀錄與控制 -->
+        <div id="control-side">
+            <div class="panel">
+                <div class="timer-display" id="timer">--</div>
+                <div id="piece-icon" class="current-piece-icon"></div>
+                <div style="text-align: center; margin-top: 5px;">
+                    <input type="checkbox" id="timer-enable" checked> <label for="timer-enable">啟用倒數 (自動下子)</label>
+                </div>
+            </div>
+
+            <div class="panel controls-grid">
+                <label>棋盤大小:</label>
+                <input type="number" id="board-size" value="15" min="7" max="33">
+                
+                <label>回手次數:</label>
+                <input type="number" id="undo-limit" value="3" min="1" max="99">
+
+                <button onclick="game.init()" style="grid-column: span 2; font-size: 1.2rem;">重新開始</button>
+                <button onclick="game.undo()" style="grid-column: span 2; font-size: 1.2rem;">回手 (Undo)</button>
+            </div>
+
+            <div class="panel">
+                <strong style="color: #ecf0f1;">對弈紀錄 (最新在最上)</strong>
+                <div id="history-log"></div>
+            </div>
+        </div>
+    </div>
+
+<script>
+class Gomoku {
+    constructor() {
+        this.canvas = document.getElementById('gomokuCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.logElement = document.getElementById('history-log');
+        this.timerElement = document.getElementById('timer');
+        this.pieceIcon = document.getElementById('piece-icon');
+        this.timerCheckbox = document.getElementById('timer-enable');
+        
+        this.boardSize = 15;
+        this.cellSize = 30; 
+        this.grid = [];
+        this.turn = 1; // 1: 黑, 2: 白
+        this.history = [];
+        this.undoCount = 0;
+        this.winner = null;
+        this.winningLine = []; 
+        this.isAnimating = false;
+
+        this.timeLeft = 10;
+        this.timerInterval = null;
+        this.isFirstMove = true;
+
+        this.canvas.addEventListener('click', (e) => this.handleClick(e));
+        
+        // 【新增】監聽勾選框：隨時啟動或取消計時
+        this.timerCheckbox.addEventListener('change', () => {
+            if (this.winner) return; // 遊戲結束不處理
+            if (this.timerCheckbox.checked) {
+                // 如果是遊戲中途開啟，且不是第一回合，則啟動計時
+                if (!this.isFirstMove) {
+                    this.startTimer();
+                }
+            } else {
+                // 如果取消勾選，立即停止計時並清空顯示
+                this.stopTimer();
+                this.timerElement.innerText = "--";
+            }
+        });
+    }
+
+    init() {
+        this.stopTimer();
+        this.canvas.classList.remove('dimmed');
+        this.boardSize = parseInt(document.getElementById('board-size').value);
+        if (this.boardSize > 64) this.boardSize = 64;
+        if (this.boardSize < 8) this.boardSize = 8;
+        
+        this.cellSize = 30; 
+        this.canvas.width = this.boardSize * this.cellSize;
+        this.canvas.height = this.boardSize * this.cellSize;
+
+        this.grid = Array(this.boardSize).fill().map(() => Array(this.boardSize).fill(0));
+        this.turn = 1;
+        this.history = [];
+        this.winner = null;
+        this.winningLine = [];
+        this.undoCount = 0;
+        this.isAnimating = false;
+        this.isFirstMove = true;
+
+        this.logElement.innerHTML = "";
+        this.addLog("遊戲開始");
+        this.updateTurnUI();
+        this.render();
+        this.timerElement.innerText = "--";
+    }
+
+    updateTurnUI() {
+        this.pieceIcon.style.backgroundColor = this.turn === 1 ? "black" : "white";
+    }
+
+    render(flashConfig = null) {
+        const ctx = this.ctx;
+        const size = this.boardSize;
+        const cs = this.cellSize;
+
+        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        ctx.beginPath();
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1;
+        for (let i = 0; i < size; i++) {
+            ctx.moveTo(cs / 2, cs / 2 + i * cs);
+            ctx.lineTo(cs / 2 + (size - 1) * cs, cs / 2 + i * cs);
+            ctx.moveTo(cs / 2 + i * cs, cs / 2);
+            ctx.lineTo(cs / 2 + i * cs, cs / 2 + (size - 1) * cs);
+        }
+        ctx.stroke();
+
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                if (this.grid[y][x] !== 0) {
+                    let color = this.grid[y][x] === 1 ? "#000" : "#fff";
+                    let stroke = "#333";
+
+                    if (flashConfig && flashConfig.isFlash) {
+                        if (flashConfig.coords.some(p => p.x === x && p.y === y)) {
+                            color = "#ffeb3b"; 
+                        }
+                    }
+
+                    this.drawPiece(x, y, color, stroke);
+                }
+            }
+        }
+    }
+
+    drawPiece(x, y, color, stroke) {
+        const ctx = this.ctx;
+        const cs = this.cellSize;
+        const cx = cs / 2 + x * cs;
+        const cy = cs / 2 + y * cs;
+        const radius = cs * 0.4;
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = stroke;
+        ctx.stroke();
+    }
+
+    handleClick(e) {
+        if (this.winner || this.isAnimating) return;
+
+        const rect = this.canvas.getBoundingClientRect();
+        const scaleX = this.canvas.width / rect.width;
+        const scaleY = this.canvas.height / rect.height;
+        const x = Math.floor(((e.clientX - rect.left) * scaleX) / this.cellSize);
+        const y = Math.floor(((e.clientY - rect.top) * scaleY) / this.cellSize);
+
+        if (x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize) {
+            this.placePiece(x, y);
+        }
+    }
+
+    placePiece(x, y) {
+        if (this.grid[y][x] !== 0) return;
+
+        if (this.turn === 1) {
+            if (this.countWinningLines(x, y, 1) > 1) {
+                alert("規則錯誤：黑色禁止一次形成兩條五連！");
+                return;
+            }
+        }
+
+        this.grid[y][x] = this.turn;
+        this.history.push({ x, y, color: this.turn, isUndo: false });
+        this.addLog(`玩家${this.turn === 1 ? '黑' : '白'}: (${x}, ${y})`);
+
+        const winResult = this.checkWin(x, y, this.turn);
+        if (winResult) {
+            this.winner = this.turn;
+            this.winningLine = winResult;
+            
+            this.addLog(`🎉 玩家${this.turn === 1 ? '黑' : '白'} 勝利!`, true);
+            this.canvas.classList.add('dimmed');
+            
+            this.render();
+            this.victoryAnimation();
+            this.stopTimer();
+            return;
+        }
+
+        const wasFirstMove = this.isFirstMove;
+        this.isFirstMove = false;
+
+        this.turn = (this.turn === 1) ? 2 : 1;
+        this.updateTurnUI();
+        this.render();
+
+        // 【邏輯更新】根據勾選狀態決定是否開啟下一個回合的倒數
+        if (this.timerCheckbox.checked) {
+            if (!wasFirstMove) {
+                this.startTimer();
+            }
+        } else {
+            this.stopTimer();
+            this.timerElement.innerText = "--";
+        }
+    }
+
+    checkWin(x, y, color) {
+        const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+        for (let [dx, dy] of directions) {
+            let line = [{x, y}];
+            for (let i = 1; i < 5; i++) {
+                let nx = x + dx * i, ny = y + dy * i;
+                if (this.inBounds(nx, ny) && this.grid[ny][nx] === color) line.push({x: nx, y: ny});
+                else break;
+            }
+            for (let i = 1; i < 5; i++) {
+                let nx = x - dx * i, ny = y - dy * i;
+                if (this.inBounds(nx, ny) && this.grid[ny][nx] === color) line.push({x: nx, y: ny});
+                else break;
+            }
+            if (line.length >= 5) return line;
+        }
+        return null;
+    }
+
+    countWinningLines(x, y, color) {
+        this.grid[y][x] = color;
+        let lines = 0;
+        const directions = [[1, 0], [0, 1], [1, 1], [1, -1]];
+        for (let [dx, dy] of directions) {
+            let count = 1;
+            for (let i = 1; i < 5; i++) {
+                let nx = x + dx * i, ny = y + dy * i;
+                if (this.inBounds(nx, ny) && this.grid[ny][nx] === color) count++; else break;
+            }
+            for (let i = 1; i < 5; i++) {
+                let nx = x - dx * i, ny = y - dy * i;
+                if (this.inBounds(nx, ny) && this.grid[ny][nx] === color) count++; else break;
+            }
+            if (count >= 5) lines++;
+        }
+        this.grid[y][x] = 0;
+        return lines;
+    }
+
+    inBounds(x, y) {
+        return x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize;
+    }
+
+    victoryAnimation() {
+        this.isAnimating = true;
+        let frame = 0;
+        const animate = () => {
+            frame++;
+            this.render({ isFlash: frame % 2 === 0, coords: this.winningLine });
+            if (frame < 20) {
+                requestAnimationFrame(animate);
+            } else {
+                this.isAnimating = false;
+                this.render();
+            }
+        };
+        animate();
+    }
+
+    startTimer() {
+        this.stopTimer(); // 先清除舊的，確保不會重疊
+        this.timeLeft = 10;
+        this.timerElement.innerText = this.timeLeft;
+        this.timerInterval = setInterval(() => {
+            this.timeLeft--;
+            this.timerElement.innerText = this.timeLeft;
+            if (this.timeLeft <= 0) {
+                this.stopTimer(); // 時間到，先停止計時器
+                this.aiMove();   // 執行自動下子
+            }
+        }, 1000);
+    }
+
+    stopTimer() {
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+            this.timerInterval = null;
+        }
+    }
+
+    aiMove() {
+        if (this.winner) return;
+        const color = this.turn;
+        let candidates = [];
+        for (let y = 0; y < this.boardSize; y++) {
+            for (let x = 0; x < this.boardSize; x++) {
+                if (this.grid[y][x] === 0) {
+                    let score = 0;
+                    for (let dy = -2; dy <= 2; dy++) {
+                        for (let dx = -2; dx <= 2; dx++) {
+                            let nx = x + dx, ny = y + dy;
+                            if (this.inBounds(nx, ny) && this.grid[ny][nx] === color) score += 1;
+                        }
+                    }
+                    candidates.push({x, y, score});
+                }
+            }
+        }
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => b.score - a.score);
+            const maxScore = candidates[0].score;
+            const top = candidates.filter(c => c.score === maxScore);
+            const choice = top[Math.floor(Math.random() * top.length)];
+            this.placePiece(choice.x, choice.y);
+        }
+    }
+
+    undo() {
+        const maxUndo = parseInt(document.getElementById('undo-limit').value) || 3;
+        if (this.history.length === 0 || this.winner) return;
+        if (this.undoCount >= maxUndo) {
+            alert("回手次數已達上限！");
+            return;
+        }
+
+        for(let i=0; i<2; i++) {
+            if(this.history.length > 0) {
+                const last = this.history.pop();
+                this.grid[last.y][last.x] = 0;
+                this.addLog(`回手: 移除 (${last.x}, ${last.y})`, false, true);
+            }
+        }
+
+        this.undoCount++;
+        this.turn = (this.turn === 1) ? 2 : 1; 
+        this.isFirstMove = true;
+        this.updateTurnUI();
+        this.render();
+        this.stopTimer();
+        this.timerElement.innerText = "--";
+    }
+
+    addLog(msg, isVictory = false, isUndo = false) {
+        const div = document.createElement('div');
+        div.className = isVictory ? 'history-item victory-log' : (isUndo ? 'history-item undo-item' : 'history-item');
+        div.innerText = msg;
+        this.logElement.prepend(div);
+        this.logElement.scrollTop = 0;
+    }
+}
+
+const game = new Gomoku();
+game.init();
+</script>
+</body>
+</html>
