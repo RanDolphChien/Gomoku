@@ -120,6 +120,12 @@
             font-weight: bold;
         }
 
+        .draw-log {
+            color: #7f8c8d;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
         .controls-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -221,7 +227,7 @@
         }
 
         handleTimerCheckboxChange() {
-            if (this.state.winner) return;
+            if (this.state.winner !== null) return;
             if (this.els.timerCheckbox.checked) {
                 if (!this.state.isFirstMove) this.startTimer();
             } else {
@@ -264,7 +270,7 @@
         // --- CORE LOGIC ---
 
         handleClick(e) {
-            if (this.state.winner || this.state.isAnimating) return;
+            if (this.state.winner !== null || this.state.isAnimating) return;
 
             const rect = this.els.canvas.getBoundingClientRect();
             const scaleX = this.els.canvas.width / rect.width;
@@ -298,6 +304,8 @@
             const winResult = this.checkWin(x, y, turn);
             if (winResult) {
                 this.handleWin(turn, winResult);
+            } else if (this.checkDraw()) {
+                this.handleDraw();
             } else {
                 this.handleNextTurn();
             }
@@ -311,6 +319,28 @@
             this.render();
             this.victoryAnimation();
             this.stopTimer();
+        }
+
+        handleDraw() {
+            this.state.winner = 0;
+            this.addLog(`🤝 遊戲平局 (Draw)!`, false, false, true);
+            this.els.canvas.classList.add('dimmed');
+            this.render();
+            this.stopTimer();
+        }
+
+        checkDraw() {
+            let emptyCells = 0;
+            const { boardSize, grid } = this.state;
+            for (let y = 0; y < boardSize; y++) {
+                for (let x = 0; x < boardSize; x++) {
+                    if (grid[y][x] === 0) {
+                        emptyCells++;
+                    }
+                }
+            }
+            const totalCells = boardSize * boardSize;
+            return emptyCells === 0 || emptyCells < totalCells * 0.05;
         }
 
         handleNextTurn() {
@@ -330,7 +360,7 @@
         }
 
         undo() {
-            if (this.state.history.length === 0 || this.state.winner) return;
+            if (this.state.history.length === 0 || this.state.winner !== null) return;
             if (this.state.remainingUndos <= 0) {
                 alert("回手次數已達上限！");
                 return;
@@ -386,7 +416,7 @@
         }
 
         aiMove() {
-            if (this.state.winner) return;
+            if (this.state.winner !== null) return;
             const color = this.state.turn;
             let candidates = [];
 
@@ -442,9 +472,12 @@
             }
         }
 
-        addLog(msg, isVictory = false, isUndo = false) {
+        addLog(msg, isVictory = false, isUndo = false, isDraw = false) {
             const div = document.createElement('div');
-            div.className = isVictory ? 'history-item victory-log' : (isUndo ? 'history-item undo-item' : 'history-item');
+            if (isVictory) div.className = 'history-item victory-log';
+            else if (isDraw) div.className = 'history-item draw-log';
+            else if (isUndo) div.className = 'history-item undo-item';
+            else div.className = 'history-item';
             div.innerText = msg;
             this.els.log.prepend(div);
         }
