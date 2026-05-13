@@ -196,7 +196,7 @@ class Gomoku {
         this.grid = [];
         this.turn = 1; // 1: 黑, 2: 白
         this.history = [];
-        this.undoCount = 0;
+        this.remainingUndos = 0;
         this.winner = null;
         this.winningLine = []; 
         this.isAnimating = false;
@@ -239,7 +239,7 @@ class Gomoku {
         this.history = [];
         this.winner = null;
         this.winningLine = [];
-        this.undoCount = 0;
+        this.remainingUndos = parseInt(document.getElementById('undo-limit').value) || 3;
         this.isAnimating = false;
         this.isFirstMove = true;
 
@@ -473,24 +473,19 @@ class Gomoku {
     }
 
     undo() {
-        const maxUndo = parseInt(document.getElementById('undo-limit').value) || 3;
         if (this.history.length === 0 || this.winner) return;
-        if (this.undoCount >= maxUndo) {
+        if (this.remainingUndos <= 0) {
             alert("回手次數已達上限！");
             return;
         }
 
-        for(let i=0; i<2; i++) {
-            if(this.history.length > 0) {
-                const last = this.history.pop();
-                this.grid[last.y][last.x] = 0;
-                this.addLog(`回手: 移除 (${last.x}, ${last.y})`, false, true);
-            }
-        }
+        const last = this.history.pop();
+        this.grid[last.y][last.x] = 0;
+        this.addLog(`回手: 移除 (${last.x}, ${last.y})`, false, true);
 
-        this.undoCount++;
+        this.remainingUndos--;
         this.turn = (this.turn === 1) ? 2 : 1; 
-        this.isFirstMove = true;
+        this.isFirstMove = this.history.length === 0;
         this.updateTurnUI();
         this.render();
         this.stopTimer();
