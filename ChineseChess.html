@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>專業響應式互動象棋</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@700&display=swap');
+
+        :root {
+            --board-bg: #e3c08d;
+            --board-line: #333;
+        }
+
+        body {
+            background: #1a1a1a;
+            font-family: 'Inter', "Microsoft JhengHei", sans-serif;
+            margin: 0;
+            overflow: hidden; /* 防止捲動，透過彈性佈局處理內容 */
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .chess-font {
+            font-family: 'Noto Serif TC', "DFKai-SB", "標楷體", serif;
+        }
+
+        .game-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 10px;
+            gap: 15px;
+        }
+
+        .board-container {
+            position: relative;
+            user-select: none;
+            /* 核心：寬度取 95vw 或 70vh 的最小值，確保不超出螢幕任何一邊 */
+            width: min(95vw, 70vh);
+            aspect-ratio: 560 / 620; /* 保持棋盤原始比例 */
+            filter: drop-shadow(0 20px 30px rgba(0,0,0,0.6));
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+            border-radius: 8px;
+        }
+
+        .piece {
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+
+        .selected {
+            filter: drop-shadow(0 0 10px gold) !important;
+        }
+
+        .valid-move {
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .valid-move:hover {
+            opacity: 0.8;
+        }
+
+        /* 控制面板響應式微調 */
+        .ui-panel {
+            width: min(95vw, 500px);
+        }
+
+        @media (max-width: 400px) {
+            .btn-text { display: none; } /* 手機端隱藏按鈕文字節省空間 */
+        }
+    </style>
+</head>
+<body class="p-2 sm:p-4">
+
+    <div class="game-main">
+        <div class="ui-panel bg-white/5 backdrop-blur-xl rounded-2xl p-4 border border-white/10 shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h1 class="text-xl sm:text-2xl font-bold text-amber-200 chess-font tracking-tighter">中 國 象 棋</h1>
+                <div id="turn-indicator" class="px-4 py-1.5 rounded-full font-bold text-white text-sm transition-all duration-500 bg-red-600 shadow-[0_0_15px_rgba(220,38,38,0.5)]">
+                    紅方回合
+                </div>
+            </div>
+            
+            <div class="flex gap-2 justify-center">
+                <button onclick="resetGame()" class="flex-1 bg-amber-600 hover:bg-amber-500 text-white py-2 rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    <span class="btn-text">重開</span>
+                </button>
+                <button onclick="undoMove()" class="flex-1 bg-zinc-700 hover:bg-zinc-600 text-white py-2 rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+                    <span class="btn-text">悔棋</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="board-container">
+            <svg id="chess-svg" viewBox="0 0 560 620" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <filter id="pieceShadow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur in="SourceAlpha" stdDeviation="2" />
+                        <feOffset dx="1" dy="2" />
+                        <feComponentTransfer><feFuncA type="linear" slope="0.4"/></feComponentTransfer>
+                        <feMerge><feMergeNode /><feMergeNode in="SourceGraphic"/></feMerge>
+                    </filter>
+                    
+                    <g id="marker">
+                        <path d="M -5,-15 L -5,-5 L -15,-5 M -5,15 L -5,5 L -15,5 M 5,-15 L 5,-5 L 15,-5 M 5,15 L 5,5 L 15,5" fill="none" stroke="#3d2b1f" stroke-width="1.2" />
+                    </g>
+                </defs>
+
+                <!-- 背景 -->
+                <rect width="560" height="620" fill="#e3c08d" rx="8" />
+                
+                <!-- 網格 -->
+                <g stroke="#3d2b1f" stroke-width="1.5" fill="none">
+                    <rect x="40" y="40" width="480" height="540" stroke-width="3" />
+                    <path d="M 40 100 H 520 M 40 160 H 520 M 40 220 H 520 M 40 280 H 520 M 40 340 H 520 M 40 400 H 520 M 40 460 H 520 M 40 520 H 520" />
+                    <path d="M 220 40 L 340 160 M 340 40 L 220 160 M 220 460 L 340 580 M 340 460 L 220 580" />
+                </g>
+
+                <g id="v-lines-container" stroke="#3d2b1f" stroke-width="1.5"></g>
+                <g opacity="0.5" id="board-markings"></g>
+
+                <g class="chess-font" font-weight="bold" font-size="34" fill="#3d2b1f" text-anchor="middle">
+                    <text x="130" y="322">楚河</text>
+                    <text x="430" y="322" transform="rotate(180 430 312)">漢界</text>
+                </g>
+
+                <!-- 層級分明 -->
+                <g id="highlights-layer"></g>
+                <g id="valid-moves-layer"></g>
+                <g id="pieces-layer"></g>
+            </svg>
+        </div>
+    </div>
+
+    <div id="game-modal" class="fixed inset-0 bg-black/90 flex items-center justify-center z-50 hidden">
+        <div class="bg-zinc-800 p-8 rounded-3xl text-center shadow-2xl border border-white/10 scale-90 animate-in fade-in zoom-in duration-300">
+            <div id="winner-icon" class="text-6xl mb-4">🏆</div>
+            <h2 id="modal-title" class="text-4xl font-bold mb-6 chess-font text-white">紅方勝！</h2>
+            <button onclick="resetGame()" class="bg-amber-600 text-white px-10 py-3 rounded-full text-xl font-bold hover:bg-amber-500 transition-all shadow-lg active:scale-95">再戰一局</button>
+        </div>
+    </div>
+
+    <script>
+        const BOARD_WIDTH = 9;
+        const BOARD_HEIGHT = 10;
+        const CELL_SIZE = 60;
+        const OFFSET_X = 40;
+        const OFFSET_Y = 40;
+
+        const TYPE = { G: 'G', A: 'A', E: 'E', H: 'H', R: 'R', C: 'C', P: 'P' };
+        const COLOR = { RED: 'red', BLACK: 'black' };
+
+        let board = [];
+        let turn = COLOR.RED;
+        let selectedPos = null;
+        let validMoves = [];
+        let history = [];
+
+        // 音效設定
+        const synth = new Tone.PolySynth(Tone.Synth).toDestination();
+        function playSound(type) {
+            try {
+                if (type === 'move') synth.triggerAttackRelease("C4", "8n", undefined, 0.2);
+                if (type === 'capture') synth.triggerAttackRelease(["E4", "G4"], "8n", undefined, 0.3);
+                if (type === 'select') synth.triggerAttackRelease("G3", "16n", undefined, 0.1);
+            } catch(e) {}
+        }
+
+        function initBoard() {
+            board = Array(BOARD_HEIGHT).fill(null).map(() => Array(BOARD_WIDTH).fill(null));
+            const setup = [
+                { y: 0, color: COLOR.BLACK, pieces: [TYPE.R, TYPE.H, TYPE.E, TYPE.A, TYPE.G, TYPE.A, TYPE.E, TYPE.H, TYPE.R] },
+                { y: 2, color: COLOR.BLACK, pieces: [null, TYPE.C, null, null, null, null, null, TYPE.C, null] },
+                { y: 3, color: COLOR.BLACK, pieces: [TYPE.P, null, TYPE.P, null, TYPE.P, null, TYPE.P, null, TYPE.P] },
+                { y: 9, color: COLOR.RED, pieces: [TYPE.R, TYPE.H, TYPE.E, TYPE.A, TYPE.G, TYPE.A, TYPE.E, TYPE.H, TYPE.R] },
+                { y: 7, color: COLOR.RED, pieces: [null, TYPE.C, null, null, null, null, null, TYPE.C, null] },
+                { y: 6, color: COLOR.RED, pieces: [TYPE.P, null, TYPE.P, null, TYPE.P, null, TYPE.P, null, TYPE.P] }
+            ];
+            setup.forEach(row => {
+                row.pieces.forEach((type, x) => {
+                    if (type) board[row.y][x] = { type, color: row.color };
+                });
+            });
+        }
+
+        function render() {
+            // 繪製垂直線
+            const vLines = document.getElementById('v-lines-container');
+            vLines.innerHTML = '';
+            for (let x = 1; x < 8; x++) {
+                const xPos = OFFSET_X + x * CELL_SIZE;
+                vLines.innerHTML += `<line x1="${xPos}" y1="${OFFSET_Y}" x2="${xPos}" y2="${OFFSET_Y + 4 * CELL_SIZE}" />`;
+                vLines.innerHTML += `<line x1="${xPos}" y1="${OFFSET_Y + 5 * CELL_SIZE}" x2="${xPos}" y2="${OFFSET_Y + 9 * CELL_SIZE}" />`;
+            }
+
+            // 繪製棋位標記
+            const markings = document.getElementById('board-markings');
+            markings.innerHTML = '';
+            const markers = [[1, 2], [7, 2], [0, 3], [2, 3], [4, 3], [6, 3], [8, 3], [1, 7], [7, 7], [0, 6], [2, 6], [4, 6], [6, 6], [8, 6]];
+            markers.forEach(([x, y]) => {
+                markings.innerHTML += `<use href="#marker" x="${OFFSET_X + x * CELL_SIZE}" y="${OFFSET_Y + y * CELL_SIZE}" />`;
+            });
+
+            // 渲染棋子
+            const piecesLayer = document.getElementById('pieces-layer');
+            piecesLayer.innerHTML = '';
+            for (let y = 0; y < BOARD_HEIGHT; y++) {
+                for (let x = 0; x < BOARD_WIDTH; x++) {
+                    const piece = board[y][x];
+                    if (piece) {
+                        const isSelected = selectedPos && selectedPos.x === x && selectedPos.y === y;
+                        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                        g.setAttribute("transform", `translate(${OFFSET_X + x * CELL_SIZE}, ${OFFSET_Y + y * CELL_SIZE})`);
+                        g.setAttribute("class", `piece ${isSelected ? 'selected' : ''}`);
+                        g.onclick = (e) => { e.stopPropagation(); handleSquareClick(x, y); };
+
+                        const colorHex = piece.color === COLOR.RED ? '#fff5f5' : '#1a1a1a';
+                        const strokeHex = piece.color === COLOR.RED ? '#c53030' : '#4a5568';
+                        const textHex = piece.color === COLOR.RED ? '#c53030' : '#e2e8f0';
+                        const name = getPieceName(piece);
+
+                        g.innerHTML = `
+                            <circle r="26" fill="${colorHex}" stroke="${strokeHex}" stroke-width="2" filter="url(#pieceShadow)" />
+                            <circle r="22" fill="none" stroke="${strokeHex}" stroke-width="1.2" opacity="0.3" />
+                            <text dy=".35em" text-anchor="middle" font-size="28" font-weight="bold" fill="${textHex}" class="chess-font">${name}</text>
+                        `;
+                        piecesLayer.appendChild(g);
+                    }
+                }
+            }
+
+            // 渲染可移動點
+            const movesLayer = document.getElementById('valid-moves-layer');
+            movesLayer.innerHTML = '';
+            validMoves.forEach(move => {
+                const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                g.setAttribute("class", "valid-move");
+                g.onclick = (e) => { e.stopPropagation(); handleSquareClick(move.x, move.y); };
+                
+                const isCapture = board[move.y][move.x] !== null;
+                g.innerHTML = isCapture 
+                    ? `<circle cx="${OFFSET_X + move.x * CELL_SIZE}" cy="${OFFSET_Y + move.y * CELL_SIZE}" r="27" fill="none" stroke="rgba(255, 0, 0, 0.4)" stroke-width="3" stroke-dasharray="4 2" />`
+                    : `<circle cx="${OFFSET_X + move.x * CELL_SIZE}" cy="${OFFSET_Y + move.y * CELL_SIZE}" r="8" fill="rgba(34, 197, 94, 0.5)" />`;
+                movesLayer.appendChild(g);
+            });
+
+            // 更新 UI 狀態
+            const indicator = document.getElementById('turn-indicator');
+            indicator.textContent = turn === COLOR.RED ? '紅方回合' : '黑方回合';
+            indicator.className = `px-4 py-1.5 rounded-full font-bold text-white text-sm transition-all duration-500 shadow-lg ${turn === COLOR.RED ? 'bg-red-600' : 'bg-zinc-800'}`;
+        }
+
+        function getPieceName(p) {
+            const names = {
+                [COLOR.RED]: { [TYPE.G]:'帥', [TYPE.A]:'仕', [TYPE.E]:'相', [TYPE.H]:'馬', [TYPE.R]:'俥', [TYPE.C]:'炮', [TYPE.P]:'兵' },
+                [COLOR.BLACK]: { [TYPE.G]:'將', [TYPE.A]:'士', [TYPE.E]:'象', [TYPE.H]:'馬', [TYPE.R]:'車', [TYPE.C]:'砲', [TYPE.P]:'卒' }
+            };
+            return names[p.color][p.type];
+        }
+
+        function handleSquareClick(x, y) {
+            const move = validMoves.find(m => m.x === x && m.y === y);
+            if (move) {
+                executeMove(selectedPos, { x, y });
+                return;
+            }
+
+            const piece = board[y][x];
+            if (piece && piece.color === turn) {
+                selectedPos = { x, y };
+                validMoves = getValidMoves(x, y);
+                playSound('select');
+            } else {
+                selectedPos = null;
+                validMoves = [];
+            }
+            render();
+        }
+
+        function getValidMoves(x, y) {
+            const piece = board[y][x];
+            let moves = [];
+            const isInsidePalace = (tx, ty, color) => tx >= 3 && tx <= 5 && (color === COLOR.RED ? ty >= 7 : ty <= 2);
+            const isOnOwnSide = (ty, color) => color === COLOR.RED ? ty >= 5 : ty <= 4;
+
+            switch (piece.type) {
+                case TYPE.G: // 帥/將
+                    [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx, dy]) => {
+                        let tx = x + dx, ty = y + dy;
+                        if (isInsidePalace(tx, ty, piece.color)) moves.push({x: tx, y: ty});
+                    });
+                    // 王見王 (飛將)
+                    let step = piece.color === COLOR.RED ? -1 : 1;
+                    for(let i = y + step; i >= 0 && i < 10; i += step) {
+                        if(board[i][x]) {
+                            if(board[i][x].type === TYPE.G) moves.push({x: x, y: i});
+                            break;
+                        }
+                    }
+                    break;
+                case TYPE.A: // 仕/士
+                    [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dx, dy]) => {
+                        let tx = x + dx, ty = y + dy;
+                        if (isInsidePalace(tx, ty, piece.color)) moves.push({x: tx, y: ty});
+                    });
+                    break;
+                case TYPE.E: // 相/象
+                    [[2,2],[2,-2],[-2,2],[-2,-2]].forEach(([dx, dy]) => {
+                        let tx = x + dx, ty = y + dy;
+                        let eyeX = x + dx/2, eyeY = y + dy/2;
+                        if (tx >= 0 && tx < 9 && ty >= 0 && ty < 10 && !board[eyeY][eyeX] && isOnOwnSide(ty, piece.color)) moves.push({x: tx, y: ty});
+                    });
+                    break;
+                case TYPE.H: // 馬
+                    [[1,2],[1,-2],[-1,2],[-1,-2],[2,1],[2,-1],[-2,1],[-2,-1]].forEach(([dx, dy]) => {
+                        let tx = x + dx, ty = y + dy;
+                        if (tx >= 0 && tx < 9 && ty >= 0 && ty < 10) {
+                            let legX = Math.abs(dx) === 2 ? x + dx/2 : x;
+                            let legY = Math.abs(dy) === 2 ? y + dy/2 : y;
+                            if (!board[legY][legX]) moves.push({x: tx, y: ty});
+                        }
+                    });
+                    break;
+                case TYPE.R: // 俥/車
+                    [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx, dy]) => {
+                        let tx = x + dx, ty = y + dy;
+                        while(tx >= 0 && tx < 9 && ty >= 0 && ty < 10) {
+                            if(!board[ty][tx]) moves.push({x: tx, y: ty});
+                            else { moves.push({x: tx, y: ty}); break; }
+                            tx += dx; ty += dy;
+                        }
+                    });
+                    break;
+                case TYPE.C: // 炮/砲
+                    [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx, dy]) => {
+                        let tx = x + dx, ty = y + dy, jumped = false;
+                        while(tx >= 0 && tx < 9 && ty >= 0 && ty < 10) {
+                            if(!jumped) {
+                                if(!board[ty][tx]) moves.push({x: tx, y: ty});
+                                else jumped = true;
+                            } else if(board[ty][tx]) {
+                                moves.push({x: tx, y: ty}); break;
+                            }
+                            tx += dx; ty += dy;
+                        }
+                    });
+                    break;
+                case TYPE.P: // 兵/卒
+                    let dir = piece.color === COLOR.RED ? -1 : 1;
+                    moves.push({x: x, y: y + dir});
+                    if (!isOnOwnSide(y, piece.color)) {
+                        moves.push({x: x + 1, y: y}, {x: x - 1, y: y});
+                    }
+                    break;
+            }
+            return moves.filter(m => m.x >= 0 && m.x < 9 && m.y >= 0 && m.y < 10 && (!board[m.y][m.x] || board[m.y][m.x].color !== piece.color));
+        }
+
+        function executeMove(from, to) {
+            const captured = board[to.y][to.x];
+            history.push({ from, to, movedPiece: board[from.y][from.x], capturedPiece: captured });
+            board[to.y][to.x] = board[from.y][from.x];
+            board[from.y][from.x] = null;
+
+            if (captured && captured.type === TYPE.G) showGameOver(turn);
+            turn = turn === COLOR.RED ? COLOR.BLACK : COLOR.RED;
+            selectedPos = null;
+            validMoves = [];
+            playSound(captured ? 'capture' : 'move');
+            render();
+        }
+
+        function undoMove() {
+            if (history.length === 0) return;
+            const last = history.pop();
+            board[last.from.y][last.from.x] = last.movedPiece;
+            board[last.to.y][last.to.x] = last.capturedPiece;
+            turn = last.movedPiece.color;
+            selectedPos = null;
+            validMoves = [];
+            render();
+        }
+
+        function showGameOver(winner) {
+            const modal = document.getElementById('game-modal');
+            const title = document.getElementById('modal-title');
+            title.textContent = winner === COLOR.RED ? "紅方 勝利！" : "黑方 勝利！";
+            title.className = `text-4xl font-bold mb-6 chess-font ${winner === COLOR.RED ? 'text-red-500' : 'text-zinc-300'}`;
+            modal.classList.remove('hidden');
+        }
+
+        function resetGame() {
+            document.getElementById('game-modal').classList.add('hidden');
+            initBoard();
+            turn = COLOR.RED;
+            selectedPos = null;
+            validMoves = [];
+            history = [];
+            render();
+        }
+
+        window.onload = () => {
+            initBoard();
+            render();
+            document.getElementById('chess-svg').addEventListener('click', (e) => {
+                if(e.target.tagName === 'rect' || e.target.id === 'chess-svg') {
+                    selectedPos = null;
+                    validMoves = [];
+                    render();
+                }
+            });
+        };
+    </script>
+</body>
+</html>
