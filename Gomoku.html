@@ -218,6 +218,7 @@
             };
 
             this.timerInterval = null;
+            this.audioCtx = null;
             this.initEventListeners();
         }
 
@@ -267,6 +268,57 @@
             this.els.pieceIcon.style.backgroundColor = this.state.turn === 1 ? "black" : "white";
         }
 
+        // --- AUDIO SYSTEM ---
+
+        initAudio() {
+            if (!this.audioCtx) {
+                this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        playTone(freq, type, duration, startTimeOffset = 0) {
+            try {
+                this.initAudio();
+                const osc = this.audioCtx.createOscillator();
+                const gain = this.audioCtx.createGain();
+                
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, this.audioCtx.currentTime + startTimeOffset);
+                
+                gain.gain.setValueAtTime(0.3, this.audioCtx.currentTime + startTimeOffset);
+                gain.gain.exponentialRampToValueAtTime(0.00001, this.audioCtx.currentTime + startTimeOffset + duration);
+                
+                osc.connect(gain);
+                gain.connect(this.audioCtx.destination);
+                
+                osc.start(this.audioCtx.currentTime + startTimeOffset);
+                osc.stop(this.audioCtx.currentTime + startTimeOffset + duration);
+            } catch (e) {
+                console.log("音效播放受瀏覽器安全性限制", e);
+            }
+        }
+
+        playMoveSound() {
+            // 清脆的落子音效
+            this.playTone(600, 'sine', 0.08);
+            this.playTone(300, 'triangle', 0.1, 0.02);
+        }
+
+        playUndoSound() {
+            // 滑音回手音效
+            this.playTone(350, 'sine', 0.15);
+            this.playTone(250, 'sine', 0.2, 0.05);
+        }
+
+        playWinSound() {
+            // 勝利大調和弦音效
+            const now = 0;
+            this.playTone(523.25, 'sine', 0.15, now);       // C5
+            this.playTone(659.25, 'sine', 0.15, now + 0.1); // E5
+            this.playTone(783.99, 'sine', 0.15, now + 0.2); // G5
+            this.playTone(1046.50, 'sine', 0.4, now + 0.3); // C6
+        }
+
         // --- CORE LOGIC ---
 
         handleClick(e) {
@@ -307,6 +359,7 @@
             } else if (this.checkDraw()) {
                 this.handleDraw();
             } else {
+                this.playMoveSound();
                 this.handleNextTurn();
             }
         }
@@ -317,6 +370,7 @@
             this.addLog(`🎉 玩家${winner === 1 ? '黑' : '白'} 勝利!`, true);
             this.els.canvas.classList.add('dimmed');
             this.render();
+            this.playWinSound();
             this.victoryAnimation();
             this.stopTimer();
         }
@@ -376,6 +430,7 @@
             
             this.updateTurnUI();
             this.render();
+            this.playUndoSound();
             this.stopTimer();
             this.els.timer.innerText = "--";
         }
