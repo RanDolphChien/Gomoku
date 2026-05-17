@@ -45,6 +45,7 @@
             width: min(95vw, 70vh);
             aspect-ratio: 560 / 620; /* 保持棋盤原始比例 */
             filter: drop-shadow(0 20px 30px rgba(0,0,0,0.6));
+            touch-action: none; /* 防止觸控時觸發頁面捲動 */
         }
 
         svg {
@@ -226,7 +227,6 @@
                         const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
                         g.setAttribute("transform", `translate(${OFFSET_X + x * CELL_SIZE}, ${OFFSET_Y + y * CELL_SIZE})`);
                         g.setAttribute("class", `piece ${isSelected ? 'selected' : ''}`);
-                        g.onclick = (e) => { e.stopPropagation(); handleSquareClick(x, y); };
 
                         const colorHex = piece.color === COLOR.RED ? '#fff5f5' : '#1a1a1a';
                         const strokeHex = piece.color === COLOR.RED ? '#c53030' : '#4a5568';
@@ -249,7 +249,6 @@
             validMoves.forEach(move => {
                 const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
                 g.setAttribute("class", "valid-move");
-                g.onclick = (e) => { e.stopPropagation(); handleSquareClick(move.x, move.y); };
                 
                 const isCapture = board[move.y][move.x] !== null;
                 g.innerHTML = isCapture 
@@ -413,16 +412,36 @@
             render();
         }
 
+        function handleBoardEvent(e) {
+            e.preventDefault();
+            const svg = document.getElementById('chess-svg');
+            const rect = svg.getBoundingClientRect();
+            const touch = e.changedTouches ? e.changedTouches[0] : e;
+
+            // 將螢幕座標換算為 SVG viewBox 座標
+            const svgX = (touch.clientX - rect.left) * (560 / rect.width);
+            const svgY = (touch.clientY - rect.top) * (620 / rect.height);
+
+            // 吸附到最近格點
+            const x = Math.round((svgX - OFFSET_X) / CELL_SIZE);
+            const y = Math.round((svgY - OFFSET_Y) / CELL_SIZE);
+
+            if (x < 0 || x >= BOARD_WIDTH || y < 0 || y >= BOARD_HEIGHT) {
+                selectedPos = null;
+                validMoves = [];
+                render();
+                return;
+            }
+            handleSquareClick(x, y);
+        }
+
         window.onload = () => {
             initBoard();
             render();
-            document.getElementById('chess-svg').addEventListener('click', (e) => {
-                if(e.target.tagName === 'rect' || e.target.id === 'chess-svg') {
-                    selectedPos = null;
-                    validMoves = [];
-                    render();
-                }
-            });
+            const svg = document.getElementById('chess-svg');
+            svg.addEventListener('click', handleBoardEvent);
+            svg.addEventListener('touchend', handleBoardEvent);
+            svg.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
         };
     </script>
 </body>
